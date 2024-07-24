@@ -10,7 +10,7 @@ WebServer server(80);
 
 HardwareSerial SerialMega(2); // RX2, TX2 for communication with Arduino Mega
 
-const char* serverName = "http://192.168.43.2/Candidates/send-pin.php"; // Updated with the correct path
+const char* serverName = "http://192.168.43.2/rothila/send-pin.php"; // Updated with the correct path
 
 void handleVotingStarted() {
   StaticJsonDocument<200> doc;
@@ -27,6 +27,7 @@ void handleVotingStarted() {
 
   SerialMega.println("Voting_Started");
   Serial.println("Voting Started signal received and sent to Arduino Mega.");
+  delay(100);  // Add a small delay to ensure the message is sent
 }
 
 void handleSendPin() {
@@ -106,7 +107,7 @@ void handleOptions() {
 
 void setup() {
   Serial.begin(115200);
-  SerialMega.begin(115200, SERIAL_8N1, 16, 17);
+  SerialMega.begin(115200, SERIAL_8N1, 16, 17); // RX2 = GPIO16, TX2 = GPIO17 on ESP32
 
   WiFi.begin(ssid, password);
   Serial.print("Connecting to WiFi");
@@ -129,11 +130,8 @@ void loop() {
   if (SerialMega.available()) {
     String pin = SerialMega.readStringUntil('\n');
     pin.trim();
-    Serial.println("Received PIN: ****");
+    Serial.println("Received PIN: " + String(pin.length(), '*'));  // Print stars instead of the actual PIN
     // Send PIN to backend
     sendPinToBackend(pin.c_str());
   }
 }
-
-
-

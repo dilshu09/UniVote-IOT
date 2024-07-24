@@ -14,10 +14,13 @@ void handleRoot() {
     server.send(200, "text/plain", "ESP32 is ready");
 }
 
+
+
 void handleDisableVoting() {
     server.sendHeader("Access-Control-Allow-Origin", "*");
     SerialMega.println("Disable_Voting");
     server.send(200, "application/json", "{\"message\":\"Disable Voting signal sent to Arduino Mega\"}");
+    sendNotification(true, "Disable Voting signal sent to Arduino Mega");
     Serial.println("Disable Voting signal sent to Arduino Mega.");
 }
 
@@ -40,8 +43,10 @@ void setup() {
     Serial.println("Connected to WiFi");
 
     server.on("/", handleRoot);
+ 
     server.on("/disable-voting", HTTP_GET, handleDisableVoting);
     server.on("/disable-voting", HTTP_OPTIONS, handleOptions);
+ 
 
     server.begin();
     Serial.println("Server started");
@@ -59,8 +64,10 @@ void loop() {
         // Send the received number to the server
         if (sendNumberToServer(receivedNumber)) {
             Serial.println("Vote sent successfully.");
+            sendNotification(true, "Vote sent successfully.");
         } else {
             Serial.println("Failed to send vote.");
+            sendNotification(false, "Failed to send vote.");
         }
     }
 }
@@ -68,7 +75,7 @@ void loop() {
 bool sendNumberToServer(const String& number) {
     if (WiFi.status() == WL_CONNECTED) {
         HTTPClient http;
-        http.begin("http://192.168.43.2/Candidates/validate-vote.php"); // Specify your server URL
+        http.begin("http://192.168.43.2/rothila/validate-vote.php"); // Specify your server URL
         http.addHeader("Content-Type", "application/json");
 
         StaticJsonDocument<200> jsonDoc;
@@ -111,3 +118,23 @@ bool sendNumberToServer(const String& number) {
     }
 }
 
+void sendNotification(bool status, const char* message) {
+    if (WiFi.status() == WL_CONNECTED) {
+        HTTPClient http;
+        http.begin("http://192.168.43.2/rothila/index2.php"); // Send to the same PHP file
+        http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+
+        String body = "status=" + String(status ? 1 : 0) + "&message=" + String(message);
+        int httpResponseCode = http.POST(body);
+        if (httpResponseCode > 0) {
+            Serial.print("Notification sent: ");
+            Serial.println(httpResponseCode);
+        } else {
+            Serial.print("Error on sending notification: ");
+            Serial.println(httpResponseCode);
+        }
+        http.end();
+    } else {
+        Serial.println("WiFi not connected.");
+    }
+}
