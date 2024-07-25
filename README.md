@@ -30,6 +30,7 @@ The system integrates multiple hardware components with a web-based application.
 ## Project Preview URL
 
 - [Project Demo Video - Part 1](https://youtu.be/pVRAK2JaDbo)
+- [Project Demo Video - Part 2](https://youtu.be/pVRAK2JaDbo)
 
 ---
 
