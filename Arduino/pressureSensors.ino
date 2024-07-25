@@ -25,7 +25,11 @@ MCUFRIEND_kbv tft;
 Adafruit_BMP280 bmp280; // BMP280 sensor
 Adafruit_BMP085_Unified bmp180 = Adafruit_BMP085_Unified(10085); // BMP180 sensor
 
-const float pressureThreshold = 150.0; // Pressure change threshold for detecting a puff
+const float pressureThresholdDigitBMP280 = 50.0; // Pressure change threshold for detecting a puff on digit entry page
+const float pressureThresholdDigitBMP180 = 50.0; // Pressure change threshold for detecting a puff on digit entry page
+const float pressureThresholdConfirmBMP280 = 50.0; // Pressure change threshold for detecting a puff on confirmation page
+const float pressureThresholdConfirmBMP180 = 50.0; // Pressure change threshold for detecting a puff on confirmation page
+
 float lastPressureBMP280 = 0.0;
 float lastPressureBMP180 = 0.0;
 bool bmp280Initialized = false;
@@ -33,53 +37,13 @@ bool bmp180Initialized = false;
 bool secondPageDisplayed = false;
 bool fifthPageDisplayed = false;
 bool confirmationPageDisplayed = false;
+bool thirdPageDisplayed = false;
 int digitCount = 0; // Tracks the current digit being selected
 int selectedDigit = 0;  // The first cell is selected
 int threeDigitNumber[3] = {0, 0, 0}; // Array to store the three-digit number
 
+bool processStarted = false; // Flag to track if the process has started
 unsigned long lastUpdateTime = 0;
-
-void setup() {
-    Serial.begin(115200);
-    Serial2.begin(115200);
-
-    // Initialize TFT display
-    tft.begin(tft.readID());
-    tft.setRotation(1);
-    tft.fillScreen(WHITE);
-    tft.setTextColor(BLACK);
-    tft.setFont(&FreeSansBold24pt7b);
-
-    // Initialize BMP280
-    Serial.println("Initializing BMP280 sensor...");
-    if (!bmp280.begin(0x76)) {  // Initialize at address 0x76
-        Serial.println("Could not find a valid BMP280 sensor, check wiring!");
-    } else {
-        Serial.println("BMP280 sensor initialized at address 0x76");
-        bmp280Initialized = true;
-        lastPressureBMP280 = bmp280.readPressure();
-        Serial.print("Initial BMP280 Pressure: ");
-        Serial.print(lastPressureBMP280);
-        Serial.println(" Pa");
-    }
-
-    // Initialize BMP180
-    Serial.println("Initializing BMP180 sensor...");
-    if(!bmp180.begin()) {
-        Serial.println("Could not find a valid BMP180 sensor, check wiring!");
-    } else {
-        Serial.println("BMP180 sensor initialized");
-        bmp180Initialized = true;
-        sensors_event_t event;
-        bmp180.getEvent(&event);
-        lastPressureBMP180 = event.pressure * 100;  // Convert hPa to Pa
-        Serial.print("Initial BMP180 Pressure: ");
-        Serial.print(lastPressureBMP180);
-        Serial.println(" Pa");
-    }
-
-    Serial.println("Setup complete. Waiting for signal...");
-}
 
 void displayMessage(const char* message, const char* countdownMessage = nullptr) {
     tft.fillScreen(WHITE);
@@ -108,7 +72,7 @@ void displayCountdown(int seconds) {
     char countdownMessage[3];
     for (int i = seconds; i > 0; i--) {
         snprintf(countdownMessage, 3, "%d", i);
-        displayMessage("Voting Started", countdownMessage);
+        displayMessage("Voting Starting", countdownMessage);
         delay(1000);
     }
     displaySecondPage();
@@ -160,6 +124,9 @@ void displaySecondPage() {
 }
 
 void displayThirdPage() {
+    if (thirdPageDisplayed) return;
+
+    thirdPageDisplayed = true;
     Serial.println("Displaying third page...");
     tft.fillScreen(WHITE);
     tft.setFont(&FreeSansBold18pt7b);  // Slightly smaller font size
@@ -202,11 +169,14 @@ void displayThirdPage() {
     int barY = (tft.height() / 2) + 40;
     tft.drawRect(barX, barY, barWidth, barHeight, BLACK);  // Draw the border for the loading bar
 
-    for (int i = 0; i <= barWidth; i += 2) {  // Increment by 2 for smoother animation
-        tft.fillRect(barX + 1, barY + 1, i, barHeight - 2, RED);  // Fill the loading bar
+    unsigned long startTime = millis();
+    while (millis() - startTime < 15000) {  // 15 seconds
+        int elapsed = millis() - startTime;
+        int progress = map(elapsed, 0, 15000, 0, barWidth);  // Calculate progress
+        tft.fillRect(barX + 1, barY + 1, progress, barHeight - 2, RED);  // Fill the loading bar
 
         // Print BMP280 pressure value to serial monitor every second
-        if (bmp280Initialized && (i % (barWidth / 10) == 0)) {
+        if (bmp280Initialized && (elapsed % 1000 == 0)) {
             float currentPressure = bmp280.readPressure();
             Serial.print("BMP280 Pressure: ");
             Serial.print(currentPressure);
@@ -217,17 +187,18 @@ void displayThirdPage() {
             Serial.print(pressureChange);
             Serial.println(" Pa");
 
-            if (pressureChange >= pressureThreshold) {
+            if (pressureChange >= pressureThresholdDigitBMP280) {
                 Serial.print("Puff detected by BMP280! Pressure change: ");
                 Serial.print(pressureChange);
                 Serial.println(" Pa");
-                return; // Exit the function to stop further execution
+                displaySecondPage(); // Go back to the second page
+                return;
             }
 
             lastPressureBMP280 = currentPressure;
         }
 
-        delay(100);  // Smooth animation
+        delay(50);  // Smooth animation
     }
 
     Serial.println("Loading bar completed.");
@@ -271,8 +242,6 @@ void displayFifthPage() {
     Serial.println("Displaying fifth page with digit cells...");
     tft.fillScreen(WHITE);
     tft.setFont(&FreeSansBold24pt7b);  // Slightly larger font size
-
-    selectedDigit = 0;  // Ensure the default selected digit is 0
 
     const int cellWidth = tft.width() / 5;
     const int cellHeight = tft.height() / 2;
@@ -363,8 +332,8 @@ void displayWaitPage() {
     int16_t x1, y1;
     uint16_t w, h;
     tft.getTextBounds(message1, 0, 0, &x1, &y1, &w, &h);
-    int16_t x = (tft.width() - w) / 2;
-    int16_t y = (tft.height() - h) / 2 - 40; // Adjust position for better centering
+    int x = (tft.width() - w) / 2;
+    int y = (tft.height() - h) / 2 - 40; // Adjust position for better centering
     tft.setCursor(x, y);
     tft.setTextColor(BLACK);
     tft.print(message1);
@@ -389,8 +358,16 @@ void displayWaitPage() {
 }
 
 void handleResponse(String response) {
+    Serial.print("Handling response: ");
+    Serial.println(response);
+
     if (response == "SUCCESS") {
         displayMessage("Vote Successful");
+        delay(3000); // Display the success message for 3 seconds
+        displayMessage("Have a nice day");
+        delay(3000); // Display "Have a nice day" for 3 seconds
+        tft.fillScreen(WHITE); // Clear the display
+        processStarted = false; // Reset the processStarted flag after successful vote
     } else if (response == "INVALID") {
         displayInvalidIdPage();
     }
@@ -409,8 +386,8 @@ void displayInvalidIdPage() {
     int16_t x1, y1;
     uint16_t w, h;
     tft.getTextBounds(message1, 0, 0, &x1, &y1, &w, &h);
-    int16_t x = (tft.width() - w) / 2;
-    int16_t y = (tft.height() - h) / 2 - 40; // Adjust position for better centering
+    int x = (tft.width() - w) / 2;
+    int y = (tft.height() - h) / 2 - 40; // Adjust position for better centering
     tft.setCursor(x, y);
     tft.setTextColor(BLACK);
     tft.print(message1);
@@ -463,8 +440,8 @@ void displayConfirmationPage() {
     int16_t x1, y1;
     uint16_t w, h;
     tft.getTextBounds(message1, 0, 0, &x1, &y1, &w, &h);
-    int16_t x = (tft.width() - w) / 2;
-    int16_t y = 50;  // Adjust top margin to move it closer to the middle
+    int x = (tft.width() - w) / 2;
+    int y = 50;  // Adjust top margin to move it closer to the middle
     tft.setCursor(x, y);
     tft.setTextColor(BLACK);
     tft.print(message1);
@@ -507,6 +484,52 @@ void displayConfirmationPage() {
     Serial.println("Confirmation page displayed.");
 }
 
+void setup() {
+    Serial.begin(115200);
+    Serial2.begin(115200);
+
+    // Initialize TFT display
+    tft.begin(tft.readID());
+    tft.setRotation(1);
+    tft.fillScreen(WHITE);
+    tft.setTextColor(BLACK);
+    tft.setFont(&FreeSansBold24pt7b);
+
+    // Add a simple message to confirm TFT is working
+    tft.setCursor(0, 0);
+    tft.print("TFT Initialized");
+
+    // Initialize BMP280
+    Serial.println("Initializing BMP280 sensor...");
+    if (!bmp280.begin(0x76)) {  // Initialize at address 0x76
+        Serial.println("Could not find a valid BMP280 sensor, check wiring!");
+    } else {
+        Serial.println("BMP280 sensor initialized at address 0x76");
+        bmp280Initialized = true;
+        lastPressureBMP280 = bmp280.readPressure();
+        Serial.print("Initial BMP280 Pressure: ");
+        Serial.print(lastPressureBMP280);
+        Serial.println(" Pa");
+    }
+
+    // Initialize BMP180
+    Serial.println("Initializing BMP180 sensor...");
+    if (!bmp180.begin()) {
+        Serial.println("Could not find a valid BMP180 sensor, check wiring!");
+    } else {
+        Serial.println("BMP180 sensor initialized");
+        bmp180Initialized = true;
+        sensors_event_t event;
+        bmp180.getEvent(&event);
+        lastPressureBMP180 = event.pressure * 100;  // Convert hPa to Pa
+        Serial.print("Initial BMP180 Pressure: ");
+        Serial.print(lastPressureBMP180);
+        Serial.println(" Pa");
+    }
+
+    Serial.println("Setup complete.");
+}
+
 void loop() {
     if (Serial2.available()) {
         String command = Serial2.readStringUntil('\n');
@@ -516,8 +539,12 @@ void loop() {
 
         if (command == "Disable_Voting") {
             Serial.println("Disable voting signal received");
-            secondPageDisplayed = false; // Reset flag to allow second page display
-            displayCountdown(5);
+            if (!processStarted) {
+                processStarted = true; // Set processStarted flag to true
+                secondPageDisplayed = false; // Reset flag to allow second page display
+                thirdPageDisplayed = false; // Reset flag to allow third page display
+                displayCountdown(5);
+            }
         }
     }
 
@@ -526,7 +553,7 @@ void loop() {
         float currentPressure = bmp280.readPressure();
         float pressureChange = currentPressure - lastPressureBMP280;
 
-        if (pressureChange >= pressureThreshold) {
+        if (pressureChange >= pressureThresholdConfirmBMP280) {
             Serial.print("Puff detected by BMP280! Pressure change: ");
             Serial.print(pressureChange);
             Serial.println(" Pa");
@@ -551,7 +578,7 @@ void loop() {
         float currentPressure = event.pressure * 100;  // Convert hPa to Pa
         float pressureChange = currentPressure - lastPressureBMP180;
 
-        if (pressureChange >= pressureThreshold) {
+        if (pressureChange >= pressureThresholdConfirmBMP180) {
             Serial.print("Puff detected by BMP180! Pressure change: ");
             Serial.print(pressureChange);
             Serial.println(" Pa");
@@ -580,7 +607,7 @@ void loop() {
         float currentPressure = bmp280.readPressure();
         float pressureChange = currentPressure - lastPressureBMP280;
 
-        if (pressureChange >= pressureThreshold) {
+        if (pressureChange >= pressureThresholdDigitBMP280) {
             Serial.print("Puff detected by BMP280! Pressure change: ");
             Serial.print(pressureChange);
             Serial.println(" Pa");
@@ -597,7 +624,7 @@ void loop() {
         float currentPressure = event.pressure * 100;  // Convert hPa to Pa
         float pressureChange = currentPressure - lastPressureBMP180;
 
-        if (pressureChange >= pressureThreshold) {
+        if (pressureChange >= pressureThresholdDigitBMP180) {
             Serial.print("Puff detected by BMP180! Pressure change: ");
             Serial.print(pressureChange);
             Serial.println(" Pa");

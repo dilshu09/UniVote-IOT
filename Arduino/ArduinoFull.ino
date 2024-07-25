@@ -33,10 +33,10 @@ MCUFRIEND_kbv tft;
 Adafruit_BMP280 bmp280; // BMP280 sensor
 Adafruit_BMP085_Unified bmp180 = Adafruit_BMP085_Unified(10085); // BMP180 sensor
 
-const float pressureThresholdDigitBMP280 = 60.0;
-const float pressureThresholdDigitBMP180 = 100.0;
-const float pressureThresholdConfirmBMP280 = 100.0;
-const float pressureThresholdConfirmBMP180 = 60.0;
+const float pressureThresholdDigitBMP280 = 50.0;
+const float pressureThresholdDigitBMP180 = 50.0;
+const float pressureThresholdConfirmBMP280 = 50.0;
+const float pressureThresholdConfirmBMP180 = 50.0;
 
 float lastPressureBMP280 = 0.0;
 float lastPressureBMP180 = 0.0;
